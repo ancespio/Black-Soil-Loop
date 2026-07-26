@@ -39,47 +39,62 @@ function Show-LogTail {
     }
 }
 
+function Test-ServiceReady {
+    param([string]$Uri)
+
+    try {
+        $null = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 1
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 try {
-    $backendProcess = Start-Process `
-        -FilePath $python `
-        -WorkingDirectory $backendDir `
-        -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $backendLog `
-        -RedirectStandardError $backendErrorLog `
-        -PassThru
-
-    $frontendProcess = Start-Process `
-        -FilePath $python `
-        -WorkingDirectory $root `
-        -ArgumentList @('-m', 'http.server', '8080', '--directory', ('"{0}"' -f $root)) `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $frontendLog `
-        -RedirectStandardError $frontendErrorLog `
-        -PassThru
-
     $deadline = (Get-Date).AddSeconds(30)
-    $backendReady = $false
-    $frontendReady = $false
+    $backendReady = Test-ServiceReady $backendUrl
+    $frontendReady = Test-ServiceReady $frontendUrl
+
+    if (-not $backendReady) {
+        $backendProcess = Start-Process `
+            -FilePath $python `
+            -WorkingDirectory $backendDir `
+            -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $backendLog `
+            -RedirectStandardError $backendErrorLog `
+            -PassThru
+    }
+
+    if (-not $frontendReady) {
+        $frontendProcess = Start-Process `
+            -FilePath $python `
+            -WorkingDirectory $root `
+            -ArgumentList @('-m', 'http.server', '8080', '--directory', ('"{0}"' -f $root)) `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $frontendLog `
+            -RedirectStandardError $frontendErrorLog `
+            -PassThru
+    }
 
     while ((Get-Date) -lt $deadline -and (-not $backendReady -or -not $frontendReady)) {
-        if (-not $backendProcess.HasExited) {
-            try {
-                $null = Invoke-WebRequest -Uri $backendUrl -UseBasicParsing -TimeoutSec 1
-                $backendReady = $true
-            } catch {
-                # The service is still starting.
+        if ($null -ne $backendProcess -and $backendProcess.HasExited) {
+            if (Test-ServiceReady $backendUrl) {
+                $backendProcess = $null
+            } else {
+                throw "The backend process exited.`n$(Show-LogTail $backendErrorLog)"
+            }
+        }
+        if ($null -ne $frontendProcess -and $frontendProcess.HasExited) {
+            if (Test-ServiceReady $frontendUrl) {
+                $frontendProcess = $null
+            } else {
+                throw "The frontend process exited.`n$(Show-LogTail $frontendErrorLog)"
             }
         }
 
-        if (-not $frontendProcess.HasExited) {
-            try {
-                $null = Invoke-WebRequest -Uri $frontendUrl -UseBasicParsing -TimeoutSec 1
-                $frontendReady = $true
-            } catch {
-                # The service is still starting.
-            }
-        }
+        $backendReady = Test-ServiceReady $backendUrl
+        $frontendReady = Test-ServiceReady $frontendUrl
 
         if (-not $backendReady -or -not $frontendReady) {
             Start-Sleep -Milliseconds 250
@@ -105,11 +120,17 @@ try {
     }
 
     while ($true) {
-        if ($backendProcess.HasExited) {
+        if ($null -ne $backendProcess -and $backendProcess.HasExited) {
             throw "The backend process exited.`n$(Show-LogTail $backendErrorLog)"
         }
-        if ($frontendProcess.HasExited) {
+        if ($null -eq $backendProcess -and -not (Test-ServiceReady $backendUrl)) {
+            throw 'The existing backend service is no longer reachable.'
+        }
+        if ($null -ne $frontendProcess -and $frontendProcess.HasExited) {
             throw "The frontend process exited.`n$(Show-LogTail $frontendErrorLog)"
+        }
+        if ($null -eq $frontendProcess -and -not (Test-ServiceReady $frontendUrl)) {
+            throw 'The existing frontend service is no longer reachable.'
         }
         Start-Sleep -Seconds 2
     }

@@ -36,6 +36,8 @@ def get_current_user(
     user = db.scalar(select(User).where(User.user_id == payload["sub"], User.is_active.is_(True)))
     if user is None:
         raise authentication_error()
+    if payload.get("session_version") != user.session_version:
+        raise authentication_error()
     now = datetime.now(timezone.utc)
     if user.last_activity_at is not None:
         last_activity = user.last_activity_at
