@@ -58,6 +58,7 @@ def login(
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail={"code": "UNAUTHENTICATED", "message": "用户名或密码错误"})
     user.last_login_at = utc_now()
+    user.last_activity_at = user.last_login_at
     db.commit()
     return response_envelope(issue_tokens(user, settings).model_dump(), trace_id=request.state.trace_id)
 
@@ -78,6 +79,14 @@ def refresh(
     user = db.scalar(select(User).where(User.user_id == payload["sub"], User.is_active.is_(True)))
     if user is None:
         raise HTTPException(status_code=401, detail={"code": "UNAUTHENTICATED", "message": "用户不存在或已停用"})
+    if user.last_activity_at is not None:
+        last_activity = user.last_activity_at
+        if last_activity.tzinfo is None:
+            last_activity = last_activity.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - last_activity > timedelta(minutes=settings.idle_timeout_minutes):
+            raise HTTPException(status_code=401, detail={"code": "SESSION_TIMEOUT", "message": "会话已因无操作超时，请重新登录"})
+    user.last_activity_at = datetime.now(timezone.utc)
+    db.commit()
     return response_envelope(issue_tokens(user, settings).model_dump(), trace_id=request.state.trace_id)
 
 
@@ -109,4 +118,3 @@ def logout(
         )
         db.commit()
     return response_envelope({"logged_out": True}, trace_id=request.state.trace_id)
-

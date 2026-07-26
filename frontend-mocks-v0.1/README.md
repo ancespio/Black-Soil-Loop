@@ -16,6 +16,7 @@
 | `e02-public-capacity.json` | E02 公开产能 |
 | `e02-public-preorders.json` | E02 公开预订单 |
 | `e02-public-transport.json` | E02 公开运输安排 |
+| `e02-public-policies.json` | E02 政策词条（演示来源） |
 
 ## 前端使用约束
 
@@ -24,5 +25,5 @@
 3. E02 只访问 `/public/dashboard/*`；不要调用 E01 详情接口拼接大屏。
 4. `PATCH` 必须把当前 `object_version` 放在事件外壳中，`payload` 只放发生变化的字段。
 5. 导入页面按 `UPLOADED → PRECHECKING → READY_TO_CONFIRM → IMPORTING → COMPLETED` 展示正常流程，并处理失败和过期终态。
-6. Mock 中的姓名、电话和地址只用于 E01 授权页面；四个 E02 Mock 不含敏感字段。
-
+6. Mock 中的姓名、电话和地址只用于 E01 授权页面；五个 E02 Mock 不含敏感字段。运输路径点、政策来源和遥测数据属于演示数据时必须保持明确标注。
+7. E02 演示数据包含 18 家脱敏企业、8 条产能、8 条预订单、8 条运输任务和 8 条政策；7 日订单、销售、产能和预订单明细均能汇总回总览 KPI。
